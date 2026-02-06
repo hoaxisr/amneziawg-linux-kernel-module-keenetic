@@ -1,10 +1,16 @@
-# AmneziaWG 2.0 — модули ядра для Keenetic (MIPS) / (MIPSEL)
+# AmneziaWG 2.0 — модули ядра для Keenetic (MIPS / AArch64)
 
-Готовые модули ядра [AmneziaWG](https://docs.amnezia.org/ru/documentation/amnezia-wg/) 2.0 для роутеров Keenetic на ядре `4.9-ndm-5`.
+Готовые модули ядра [AmneziaWG](https://docs.amnezia.org/ru/documentation/amnezia-wg/) 2.0 для роутеров Keenetic.
 
-> **5 сборок покрывают все MIPS-модели (61 роутер)**
+> **5 сборок MIPS покрывают все MIPS-модели (61 роутер)**
+>
+> **3 сборки AArch64 покрывают все ARM64-модели (15 роутеров)**
 
-## Файлы модулей
+---
+
+## MIPS
+
+### Файлы модулей
 
 | Файл | Размер | ELF | Vermagic | Моделей |
 |---|---|---|---|---|
@@ -14,7 +20,7 @@
 | `amneziawg-MIPS-EN7516.ko` | 151 KB | 32-bit MSB | 4.9-ndm-5 SMP | 4 |
 | `amneziawg-MIPSEL-EN7528.ko` | 150 KB | 32-bit LSB | 4.9-ndm-5 SMP | 4 |
 
-## Совместимость
+### Совместимость
 
 | Сборка | Архитектура | Модели |
 |---|---|---|
@@ -23,6 +29,39 @@
 | **EN7512** | mips (BE) | KN-2010, 2011, 2012, 2110, 2111 |
 | **EN7516** | mips (BE) | KN-2112, 2410, 2510, 3610 |
 | **EN7528** | mipsel | KN-1912, 3012, 3710, 3810 |
+
+---
+
+## AArch64
+
+### Файлы модулей
+
+| Файл | Моделей |
+|---|---|
+| `amneziawg-AARCH64-MT7622.ko` | 2 |
+| `amneziawg-AARCH64-MT7981.ko` | 12 |
+| `amneziawg-AARCH64-MT7988.ko` | 1 |
+
+### Совместимость
+
+| Модуль | Модель | Название |
+|---|---|---|
+| **amneziawg-AARCH64-MT7622.ko** | KN-1811 | Ultra / Titan |
+| | KN-2710 | Peak |
+| **amneziawg-AARCH64-MT7981.ko** | KN-1012 | Giga / Hero |
+| | KN-2312 | Hopper 4G+ |
+| | KN-3411 | Buddy 6 |
+| | KN-3711 | Sprinter |
+| | KN-3712 | Sprinter SE |
+| | KN-3811 | Hopper |
+| | KN-3812 | Hopper SE |
+| | KN-3910 | Challenger |
+| | KN-3911 | Challenger SE |
+| | KN-4010 | Racer |
+| | KN-4410 | Buddy 6 SE |
+| **amneziawg-AARCH64-MT7988.ko** | KN-1812 | Ultra / Titan |
+
+---
 
 ## Установка
 
@@ -35,5 +74,4 @@
    ```bash
    insmod /opt/tmp/amneziawg-MIPSEL-MT7621.ko
    ```
-
 
