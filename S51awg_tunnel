@@ -1,0 +1,96 @@
+#!/bin/sh
+
+ENABLED=yes
+AWG_BIN="/opt/etc/awg/awg"
+INTERFACE="awgk0"
+MODULE_FILE="/opt/etc/awg/amneziawg.ko"
+MODULE_NAME="amneziawg"
+CONF_FILE="/opt/etc/awg/awgk0.conf"
+CLEAN_CONF="/tmp/${INTERFACE}_clean.conf"
+
+# Настройки сети
+MTU="1280"
+QLEN="1000"
+
+start() {
+    [ "$ENABLED" != "yes" ] && return 0
+
+    ip link show $INTERFACE >/dev/null 2>&1 && echo "Interface $INTERFACE already exists." && return 0
+
+    echo "Starting $INTERFACE..."
+
+    # 1. Создаем интерфейс
+    ip link add dev $INTERFACE type amneziawg || {
+        insmod $MODULE_FILE
+        ip link add dev $INTERFACE type amneziawg
+    } || { echo "Failed to create interface"; return 1; }
+
+    # 2. Включаем IPv6 на интерфейсе
+    if [ -f /proc/sys/net/ipv6/conf/$INTERFACE/disable_ipv6 ]; then
+        echo 0 > /proc/sys/net/ipv6/conf/$INTERFACE/disable_ipv6
+    fi
+
+    # 3. Назначаем IP из конфига (IPv4 + IPv6)
+    ADDRS=$(grep -i "^Address" $CONF_FILE | cut -d= -f2 | tr -d ' \r')
+    for addr in $(echo $ADDRS | tr ',' ' '); do
+        ip address add $addr dev $INTERFACE
+    done
+
+    # 4. Применяем конфиг
+    grep -vE '^(Address|DNS|MTU|Table|PreUp|PostUp|PreDown|PostDown|SaveConfig)' $CONF_FILE > $CLEAN_CONF
+    if ! $AWG_BIN setconf $INTERFACE $CLEAN_CONF; then
+        echo "Failed to apply configuration. Check $CONF_FILE"
+        rm -f $CLEAN_CONF
+        ip link del $INTERFACE 2>/dev/null
+        return 1
+    fi
+    rm -f $CLEAN_CONF
+
+    # 5. Поднимаем интерфейс
+    ip link set dev $INTERFACE txqueuelen $QLEN mtu $MTU up
+
+    ip route add default dev $INTERFACE metric 1000 2>/dev/null
+
+    ip -6 route add default dev $INTERFACE metric 1000 2>/dev/null
+
+    iptables -I FORWARD 1 -i $INTERFACE -j ACCEPT
+    iptables -I FORWARD 1 -o $INTERFACE -j ACCEPT
+    iptables -t nat -I POSTROUTING 1 -o $INTERFACE -j MASQUERADE
+    iptables -t mangle -I FORWARD 1 -o $INTERFACE -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
+    if [ -x /opt/sbin/ip6tables ]; then
+        ip6tables -I FORWARD 1 -i $INTERFACE -j ACCEPT 2>/dev/null
+        ip6tables -I FORWARD 1 -o $INTERFACE -j ACCEPT 2>/dev/null
+        ip6tables -t nat -I POSTROUTING 1 -o $INTERFACE -j MASQUERADE 2>/dev/null
+    fi
+
+    echo "Interface $INTERFACE started."
+}
+
+stop() {
+    # Удаляем правила IPv4
+    iptables -D FORWARD -i $INTERFACE -j ACCEPT 2>/dev/null
+    iptables -D FORWARD -o $INTERFACE -j ACCEPT 2>/dev/null
+    iptables -t nat -D POSTROUTING -o $INTERFACE -j MASQUERADE 2>/dev/null
+    iptables -t mangle -D FORWARD -o $INTERFACE -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
+
+    # Удаляем правила IPv6
+    if [ -x /opt/sbin/ip6tables ]; then
+        ip6tables -D FORWARD -i $INTERFACE -j ACCEPT 2>/dev/null
+        ip6tables -D FORWARD -o $INTERFACE -j ACCEPT 2>/dev/null
+        ip6tables -t nat -D POSTROUTING -o $INTERFACE -j MASQUERADE 2>/dev/null
+    fi
+
+    # Удаляем интерфейс
+    ip link del $INTERFACE 2>/dev/null
+    echo "Interface $INTERFACE stopped."
+
+    rmmod $MODULE_NAME 2>/dev/null
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; sleep 1; start ;;
+    *) echo "Usage: $0 {start|stop|restart}" ;;
+esac
