@@ -9,7 +9,7 @@ CONF_FILE="/opt/etc/awg/awgk0.conf"
 CLEAN_CONF="/tmp/${INTERFACE}_clean.conf"
 
 # Настройки сети
-MTU="1280"
+MTU="1270"
 QLEN="1000"
 
 start() {
@@ -19,21 +19,37 @@ start() {
 
     echo "Starting $INTERFACE..."
 
-    # 1. Создаем интерфейс
-    ip link add dev $INTERFACE type amneziawg || {
-        insmod $MODULE_FILE
-        ip link add dev $INTERFACE type amneziawg
-    } || { echo "Failed to create interface"; return 1; }
-
-    # 2. Включаем IPv6 на интерфейсе
-    if [ -f /proc/sys/net/ipv6/conf/$INTERFACE/disable_ipv6 ]; then
-        echo 0 > /proc/sys/net/ipv6/conf/$INTERFACE/disable_ipv6
+    # 1. Создаем интерфейс (с retry после загрузки модуля)
+    if ! ip link add dev $INTERFACE type amneziawg 2>/dev/null; then
+        echo "Loading kernel module $MODULE_FILE..."
+        insmod $MODULE_FILE || { echo "Failed to load module"; return 1; }
+        retries=0
+        while ! ip link add dev $INTERFACE type amneziawg 2>/dev/null; do
+            retries=$((retries + 1))
+            if [ $retries -ge 5 ]; then
+                echo "Failed to create interface after module load (${retries} retries)"
+                return 1
+            fi
+            sleep 1
+        done
     fi
 
-    # 3. Назначаем IP из конфига (IPv4 + IPv6)
+    # 2. Проверяем поддержку IPv6
+    HAS_IPV6=no
+    if [ -d /proc/sys/net/ipv6 ] && [ -x /opt/sbin/ip6tables ]; then
+        HAS_IPV6=yes
+        if [ -f /proc/sys/net/ipv6/conf/$INTERFACE/disable_ipv6 ]; then
+            echo 0 > /proc/sys/net/ipv6/conf/$INTERFACE/disable_ipv6
+        fi
+    fi
+
+    # 3. Назначаем IP из конфига
     ADDRS=$(grep -i "^Address" $CONF_FILE | cut -d= -f2 | tr -d ' \r')
     for addr in $(echo $ADDRS | tr ',' ' '); do
-        ip address add $addr dev $INTERFACE
+        case "$addr" in
+            *:*) [ "$HAS_IPV6" = "yes" ] && ip address add $addr dev $INTERFACE ;;
+            *)   ip address add $addr dev $INTERFACE ;;
+        esac
     done
 
     # 4. Применяем конфиг
@@ -51,14 +67,13 @@ start() {
 
     ip route add default dev $INTERFACE metric 1000 2>/dev/null
 
-    ip -6 route add default dev $INTERFACE metric 1000 2>/dev/null
-
     iptables -I FORWARD 1 -i $INTERFACE -j ACCEPT
     iptables -I FORWARD 1 -o $INTERFACE -j ACCEPT
     iptables -t nat -I POSTROUTING 1 -o $INTERFACE -j MASQUERADE
     iptables -t mangle -I FORWARD 1 -o $INTERFACE -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
 
-    if [ -x /opt/sbin/ip6tables ]; then
+    if [ "$HAS_IPV6" = "yes" ]; then
+        ip -6 route add default dev $INTERFACE metric 1000 2>/dev/null
         ip6tables -I FORWARD 1 -i $INTERFACE -j ACCEPT 2>/dev/null
         ip6tables -I FORWARD 1 -o $INTERFACE -j ACCEPT 2>/dev/null
         ip6tables -t nat -I POSTROUTING 1 -o $INTERFACE -j MASQUERADE 2>/dev/null
@@ -74,8 +89,8 @@ stop() {
     iptables -t nat -D POSTROUTING -o $INTERFACE -j MASQUERADE 2>/dev/null
     iptables -t mangle -D FORWARD -o $INTERFACE -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
 
-    # Удаляем правила IPv6
-    if [ -x /opt/sbin/ip6tables ]; then
+    # Удаляем правила IPv6 (только если ip6tables доступен)
+    if [ -x /opt/sbin/ip6tables ] && [ -d /proc/sys/net/ipv6 ]; then
         ip6tables -D FORWARD -i $INTERFACE -j ACCEPT 2>/dev/null
         ip6tables -D FORWARD -o $INTERFACE -j ACCEPT 2>/dev/null
         ip6tables -t nat -D POSTROUTING -o $INTERFACE -j MASQUERADE 2>/dev/null
