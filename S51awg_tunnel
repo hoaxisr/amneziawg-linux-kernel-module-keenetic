@@ -9,7 +9,7 @@ CONF_FILE="/opt/etc/awg/awgk0.conf"
 CLEAN_CONF="/tmp/${INTERFACE}_clean.conf"
 
 # Настройки сети
-MTU="1270"
+MTU="1280"
 QLEN="1000"
 
 start() {
